@@ -83,6 +83,9 @@ type indenter struct {
 	p      *indenter // the indenter that wrapped us
 }
 
+// NewWriter is the name used in github.com/openconfig/goyang/pkg/indent.
+var NewWriter = New
+
 // New returns a writer that will prefix all lines written to it with prefix and
 // then writes the results to w.  New is intelligent about recursive calls to
 // New.  New return w if prefix is the empty string.  When nesting, New does not
