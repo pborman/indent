@@ -2,9 +2,43 @@ package indent
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"runtime"
+	"runtime/debug"
 	"testing"
 )
+
+func dup(s string) string {
+	s1 := s + "x"
+	return s1[:len(s)]
+}
+
+var heapMemory [100][]byte
+
+func TestGC(t *testing.T) {
+	input := []string{
+		"abc",
+		"def",
+		"123456789",
+	}
+	var output [][]byte
+	for _, s := range input {
+		output = append(output, s2b(dup(s)))
+	}
+	defer func(p int) {
+		debug.SetGCPercent(p)
+	}(debug.SetGCPercent(1))
+	for i := 0; i < 10000; i++ {
+		for j, s := range input {
+			if string(output[j]) != s {
+				t.Fatalf("Round %d got %q want %q", i, output[j], s)
+			}
+		}
+		heapMemory[i%100] = make([]byte, 4)
+		runtime.GC()
+	}
+}
 
 func TestIndent(t *testing.T) {
 	for _, tt := range []struct {
@@ -233,12 +267,153 @@ func TestNested(t *testing.T) {
 	}
 }
 
-var prefix = "abcd"
+type fakeWriter struct {
+	left int
+	buf  bytes.Buffer
+}
+
+func (f *fakeWriter) Write(buf []byte) (int, error) {
+	if f.left < len(buf) {
+		f.buf.Write(buf[:f.left])
+		n := f.left
+		f.left = 0
+		return n, io.EOF
+	}
+	f.buf.Write(buf)
+	f.left -= len(buf)
+	return len(buf), nil
+}
+
+// TestReturn makes sure we return the correct value according to the io.Writer
+// contract.  We need to test writes both at the start of a line as well as
+// writes starting at the middle of a line.
+func TestReturn(t *testing.T) {
+	input := []byte("abc\ndef\ngh")
+	prefix := "--"
+
+	for _, tt := range []struct {
+		max int
+		w0  int
+		out int
+	}{
+		{max: 1, out: 0},
+		{max: 2, out: 0},
+		{max: 3, out: 1},
+		{max: 4, out: 2},
+		{max: 5, out: 3},
+		{max: 6, out: 4},
+		{max: 7, out: 4},
+		{max: 8, out: 4},
+		{max: 9, out: 5},
+		{max: 10, out: 6},
+		{max: 11, out: 7},
+		{max: 12, out: 8},
+		{max: 13, out: 8},
+
+		{max: 3, w0: 1, out: 0},
+
+		{max: 4, w0: 1, out: 1},
+		{max: 4, w0: 2, out: 0},
+
+		{max: 5, w0: 1, out: 2},
+		{max: 5, w0: 2, out: 1},
+		{max: 5, w0: 3, out: 0},
+
+		{max: 6, w0: 1, out: 3},
+		{max: 6, w0: 2, out: 2},
+		{max: 6, w0: 3, out: 1},
+		{max: 6, w0: 4, out: 0},
+
+		{max: 7, w0: 1, out: 3},
+		{max: 7, w0: 2, out: 2},
+		{max: 7, w0: 3, out: 1},
+		{max: 7, w0: 4, out: 0},
+
+		{max: 8, w0: 1, out: 3},
+		{max: 8, w0: 2, out: 2},
+		{max: 8, w0: 3, out: 1},
+		{max: 8, w0: 4, out: 0},
+
+		{max: 9, w0: 1, out: 4},
+		{max: 9, w0: 2, out: 3},
+		{max: 9, w0: 3, out: 2},
+		{max: 9, w0: 4, out: 1},
+		{max: 9, w0: 5, out: 0},
+
+		{max: 10, w0: 1, out: 5},
+		{max: 10, w0: 2, out: 4},
+		{max: 10, w0: 3, out: 3},
+		{max: 10, w0: 4, out: 2},
+		{max: 10, w0: 5, out: 1},
+		{max: 10, w0: 6, out: 0},
+
+		{max: 11, w0: 1, out: 6},
+		{max: 11, w0: 2, out: 5},
+		{max: 11, w0: 3, out: 4},
+		{max: 11, w0: 4, out: 3},
+		{max: 11, w0: 5, out: 2},
+		{max: 11, w0: 6, out: 1},
+		{max: 11, w0: 7, out: 0},
+
+		{max: 12, w0: 1, out: 7},
+		{max: 12, w0: 2, out: 6},
+		{max: 12, w0: 3, out: 5},
+		{max: 12, w0: 4, out: 4},
+		{max: 12, w0: 5, out: 3},
+		{max: 12, w0: 6, out: 2},
+		{max: 12, w0: 7, out: 1},
+		{max: 12, w0: 8, out: 0},
+
+		{max: 13, w0: 1, out: 7},
+		{max: 13, w0: 2, out: 6},
+		{max: 13, w0: 3, out: 5},
+		{max: 13, w0: 4, out: 4},
+		{max: 13, w0: 5, out: 3},
+		{max: 13, w0: 6, out: 2},
+		{max: 13, w0: 7, out: 1},
+		{max: 13, w0: 8, out: 0},
+
+		{max: 14, w0: 1, out: 7},
+		{max: 14, w0: 2, out: 6},
+		{max: 14, w0: 3, out: 5},
+		{max: 14, w0: 4, out: 4},
+		{max: 14, w0: 5, out: 3},
+		{max: 14, w0: 6, out: 2},
+		{max: 14, w0: 7, out: 1},
+		{max: 14, w0: 8, out: 0},
+
+		{max: 15, w0: 1, out: 8},
+		{max: 15, w0: 2, out: 7},
+		{max: 15, w0: 3, out: 6},
+		{max: 15, w0: 4, out: 5},
+		{max: 15, w0: 5, out: 4},
+		{max: 15, w0: 6, out: 3},
+		{max: 15, w0: 7, out: 2},
+		{max: 15, w0: 8, out: 1},
+		{max: 15, w0: 9, out: 0},
+	} {
+		t.Run(fmt.Sprintf("Test %d:%d", tt.max, tt.w0), func(t *testing.T) {
+			fw := &fakeWriter{left: tt.max}
+			w := New(fw, prefix)
+			n, _ := w.Write(input[:tt.w0])
+			if n != tt.w0 {
+				t.Errorf("Test %d:%d - w0 got %d, want %d <---------------", tt.max, tt.w0, n, tt.w0)
+				return
+			}
+			out, _ := w.Write(input[tt.w0:])
+			if out != tt.out {
+				t.Errorf("Test %d:%d - got %d, want %d <---------------", tt.max, tt.w0, out, tt.out)
+			}
+		})
+	}
+}
+
+var tprefix = "abcd"
 
 func BenchmarkS2B(b *testing.B) {
 	n := 0
 	for i := 0; i < b.N; i++ {
-		n += len(s2b(prefix))
+		n += len(s2b(tprefix))
 	}
 }
 
