@@ -39,6 +39,7 @@ package indent
 import (
 	"bytes"
 	"io"
+	"reflect"
 	"unsafe"
 )
 
@@ -54,7 +55,16 @@ import (
 
 // s2b returns a []byte, that points to s.  The contents of the returned
 // slice must not be modified.
-func s2b(s string) []byte { return *(*[]byte)(unsafe.Pointer(&s)) }
+func s2b(s string) []byte {
+	// A string has a 2 word header and a byte slice has a 3 word header.
+	var b []byte
+	sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
+	bh := (*reflect.SliceHeader)(unsafe.Pointer(&b))
+	bh.Data = sh.Data
+	bh.Len = sh.Len
+	bh.Cap = sh.Len
+	return b
+}
 
 // b2s turns b into a string without copying.  The contents of b must not be
 // modified after this.
@@ -127,9 +137,56 @@ func (in *indenter) Write(buf []byte) (int, error) {
 	if len(buf) == 0 {
 		return 0, nil
 	}
-	buf = indent(buf, in.prefix, in.sol)
-	in.sol = buf[len(buf)-1] == '\n'
-	return in.w.Write(buf)
+	nbuf := indent(buf, in.prefix, in.sol)
+	r, err := in.w.Write(nbuf)
+	if r == len(nbuf) {
+		in.sol = nbuf[r-1] == '\n'
+		return len(buf), err
+	}
+
+	// The write failed someplace.  Figure out
+	// how much of what we wrote came from buf
+	// and return that amount.
+
+	nbuf = nbuf[:r]
+
+	if r == 0 {
+		return 0, err
+	}
+
+	// If sol was true then we started with a
+	// prefix, if not, we did not.  So strip
+	// the initial prefix if we wrote one.
+	if in.sol {
+		r -= len(in.prefix)
+		if r <= 0 {
+			in.sol = true
+			return 0, err
+		}
+		nbuf = nbuf[len(in.prefix):]
+	}
+
+	nl := bytes.Count(nbuf, []byte{'\n'})
+	if nl == 0 {
+		// There are no newlines so there are no
+		// prefixes left to accoubt for.
+		in.sol = buf[r-1] == '\n'
+		return r, err
+	}
+
+	// Find how much we wrote up to and including the last newline
+	ln := bytes.LastIndex(nbuf, []byte{'\n'})
+	r = ln - (nl-1)*len(in.prefix) + 1
+
+	// Now figure out how many bytes were after the last newline.
+	// If more than our prefix then add those back into the total
+	// number of bytes read from buf.
+	x := len(nbuf) - ln - 1
+	if x > len(in.prefix) {
+		r += x - len(in.prefix)
+	}
+	in.sol = buf[r-1] == '\n'
+	return r, err
 }
 
 // indent returns buf with each line prefixed by prefix.  The sol flag indicates
