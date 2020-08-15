@@ -41,11 +41,11 @@ func TestIndent(t *testing.T) {
 		// Only try the other functions when we are at the sol of a
 		// line.
 		if tt.sol {
-			out = String(tt.in, tt.prefix)
+			out = String(tt.prefix, tt.in)
 			if out != tt.out {
 				t.Errorf("String(%q, %q, %v) got %q, want %q", tt.in, tt.prefix, tt.sol, out, tt.out)
 			}
-			out := string(Bytes(([]byte)(tt.in), ([]byte)(tt.prefix)))
+			out := string(Bytes(([]byte)(tt.prefix), ([]byte)(tt.in)))
 			if out != tt.out {
 				t.Errorf("Bytes(%q, %q, %v) got %q, want %q", tt.in, tt.prefix, tt.sol, out, tt.out)
 			}

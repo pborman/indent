@@ -61,7 +61,7 @@ func s2b(s string) []byte { return *(*[]byte)(unsafe.Pointer(&s)) }
 func b2s(b []byte) string { return *(*string)(unsafe.Pointer(&b)) }
 
 // String returns input with each line in input prefixed by prefix.
-func String(input, prefix string) string {
+func String(prefix, input string) string {
 	if len(input) == 0 || len(prefix) == 0 {
 		return input
 	}
@@ -69,7 +69,7 @@ func String(input, prefix string) string {
 }
 
 // Bytes returns input with each line in input prefixed by prefix.
-func Bytes(input, prefix []byte) []byte {
+func Bytes(prefix, input []byte) []byte {
 	if len(input) == 0 || len(prefix) == 0 {
 		return input
 	}
