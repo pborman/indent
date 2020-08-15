@@ -2,6 +2,7 @@
 
 The indent package indents lines of text with a prefix.  It supports indent
 blocks of text (string or []byte) as well as providing an io.Writer interface.
+It is a drop-in replacement for the github.com/openconfig/goyang/pkg/indent package.
 
 For example, indenting the text in the first block below with a ```>>``` prefix
 using any of the methods will result in the second block below.
