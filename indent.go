@@ -221,3 +221,30 @@ func indent(buf, prefix []byte, sol bool) []byte {
 	}
 	return buf
 }
+
+// Unwrap unwraps and indenter and returns the underlying io.Writer.  It will
+// unwrap up to n times or until an io.Writer that is not an indenter is
+// unwrapped.  If n is 0 then w is returned.  if n is less than zero then all
+// indenters are unwrapped.  You should only unwrap after a newline has been
+// written.  Anything written to the unwrapped io.Writer should also end with
+// a newline.
+func Unwrap(w io.Writer, n int) io.Writer {
+	if n == 0 {
+		return w
+	}
+	in, ok := w.(*indenter)
+	if !ok {
+		return w
+	}
+
+	for {
+		if in.p == nil {
+			return in.w
+		}
+		in = in.p
+		n--
+		if n == 0 {
+			return in.w
+		}
+	}
+}
