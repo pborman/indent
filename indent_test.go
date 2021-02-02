@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"os"
 	"runtime"
 	"runtime/debug"
 	"testing"
