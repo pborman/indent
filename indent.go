@@ -100,11 +100,13 @@ func Bytes(prefix, input []byte) []byte {
 	return indent(input, prefix, true)
 }
 
+// An indenter is an io.Writer.  All indenters in an uninterruped chain share
+// the same sol value.
 type indenter struct {
 	w      io.Writer
 	prefix []byte
-	sol    bool      // true if we are at the start of a line
-	p      *indenter // the indenter that wrapped us
+	sol    *bool     // true if we are at the start of a line
+	p      *indenter // the indenter we wrapped
 }
 
 // NewWriter is the name used in github.com/openconfig/goyang/pkg/indent.
@@ -123,44 +125,48 @@ func New(w io.Writer, prefix string) io.Writer {
 	// If we are indenting an indenter then we can just combine the
 	// indents.
 	if in, ok := w.(*indenter); ok {
-		in.p = &indenter{
+		return &indenter{
 			w:      in.w,
 			prefix: append(in.prefix, prefix...),
 			sol:    in.sol,
+			p:      in,
 		}
-		return in.p
 	}
+	sol := true
 	return &indenter{
 		w:      w,
 		prefix: []byte(prefix),
-		sol:    true,
+		sol:    &sol,
 	}
 }
 
+// Write implements io.Writer.  Write assumes proper nesting.  Not nesting on
+// newlines may end up with surprising results.  For example,
+//
+//	w1 := New(w, "1> ")
+//	fmt.Fprint(w1, "abc")
+//	w2 := New(w1, "2> ")
+//	fmt.Fprint(w2, "123\n456")
+//	fmt.Fprint(w1, "def\n")
+//
+// produces:
+//
+//	1> abc123
+//	1> 2> 456def
 func (in *indenter) Write(buf []byte) (int, error) {
-	// If we were wrapped then try to preserve the sol bit.
-	// This assume proper nesting.
-	if p := in.p; p != nil {
-		for p.p != nil {
-			p = p.p
-		}
-		in.sol = p.sol
-		in.p = nil
-	}
-
 	if len(buf) == 0 {
 		return 0, nil
 	}
-	nbuf := indent(buf, in.prefix, in.sol)
+	sol := *in.sol
+	nbuf := indent(buf, in.prefix, sol)
 	r, err := in.w.Write(nbuf)
 	if r == len(nbuf) {
-		in.sol = nbuf[r-1] == '\n'
+		*in.sol = nbuf[r-1] == '\n'
 		return len(buf), err
 	}
 
-	// The write failed someplace.  Figure out
-	// how much of what we wrote came from buf
-	// and return that amount.
+	// The write failed someplace.  Figure out how much of what we wrote
+	// came from buf and return that amount.
 
 	nbuf = nbuf[:r]
 
@@ -168,13 +174,11 @@ func (in *indenter) Write(buf []byte) (int, error) {
 		return 0, err
 	}
 
-	// If sol was true then we started with a
-	// prefix, if not, we did not.  So strip
-	// the initial prefix if we wrote one.
-	if in.sol {
+	// If sol was true then we started with a prefix, if not, we did not.
+	// So strip the initial prefix if we wrote one.
+	if sol {
 		r -= len(in.prefix)
 		if r <= 0 {
-			in.sol = true
 			return 0, err
 		}
 		nbuf = nbuf[len(in.prefix):]
@@ -182,9 +186,9 @@ func (in *indenter) Write(buf []byte) (int, error) {
 
 	nl := bytes.Count(nbuf, []byte{'\n'})
 	if nl == 0 {
-		// There are no newlines so there are no
-		// prefixes left to accoubt for.
-		in.sol = buf[r-1] == '\n'
+		// There are no newlines so there are no prefixes left to
+		// account for.
+		*in.sol = buf[r-1] == '\n'
 		return r, err
 	}
 
@@ -192,14 +196,14 @@ func (in *indenter) Write(buf []byte) (int, error) {
 	ln := bytes.LastIndex(nbuf, []byte{'\n'})
 	r = ln - (nl-1)*len(in.prefix) + 1
 
-	// Now figure out how many bytes were after the last newline.
-	// If more than our prefix then add those back into the total
-	// number of bytes read from buf.
+	// Now figure out how many bytes were after the last newline.  If more
+	// than our prefix then add those back into the total number of bytes
+	// read from buf.
 	x := len(nbuf) - ln - 1
 	if x > len(in.prefix) {
 		r += x - len(in.prefix)
 	}
-	in.sol = buf[r-1] == '\n'
+	*in.sol = buf[r-1] == '\n'
 	return r, err
 }
 
@@ -211,9 +215,8 @@ func indent(buf, prefix []byte, sol bool) []byte {
 	}
 	lines := bytes.SplitAfter(buf, []byte{'\n'})
 	n := len(lines) - 1
-	// If buf ends in a newline there will be a zero slice at the
-	// of the the lines.  Needs to be removed so we don't append
-	// and extra prefix.
+	// If buf ends in a newline there will be a zero slice at the of the the
+	// lines.  It needs to be removed so we don't append and extra prefix.
 	if len(lines[n]) == 0 {
 		lines = lines[:n]
 		n--
@@ -255,10 +258,10 @@ func Unwrap(w io.Writer, n int) io.Writer {
 		if in.p == nil {
 			return in.w
 		}
-		in = in.p
 		n--
 		if n == 0 {
-			return in.w
+			return in.p
 		}
+		in = in.p
 	}
 }

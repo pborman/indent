@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"testing"
@@ -278,6 +279,45 @@ func TestNested(t *testing.T) {
 		if out != tt.out {
 			t.Errorf("Nest %q got %q, want %q", []string{tt.in1a, tt.in2a, tt.in3, tt.in2b, tt.in1b}, out, tt.out)
 		}
+	}
+}
+
+func TestUnwrap(t *testing.T) {
+	buf := &bytes.Buffer{}
+	var w io.Writer = buf
+
+	if uw := Unwrap(w, -1); uw != w {
+		t.Error("Unwrapping unwrapped writer did not return original writer.")
+	}
+	fmt.Fprintln(w, "line 1")
+
+	w1 := New(w, "1>");
+	fmt.Fprintln(w1, "line 2")
+
+	w2 := New(w1, "2>");
+	fmt.Fprintln(w2, "line 3")
+
+	if uw := Unwrap(w2, 0); uw != w2 {
+		t.Error("Unwrap(w, 0) did not return w")
+	}
+	if uw := Unwrap(w2, 1); uw != w1 {
+		t.Error("Unwrap(w2, 1) did not return w1")
+	}
+	if uw := Unwrap(w2, 2); uw != w {
+		t.Error("Unwrap(w2, 2) did not return w")
+	}
+
+	fmt.Fprintln(w1, "line 4")
+	fmt.Fprintln(w2, "line 5")
+	want := `
+line 1
+1>line 2
+1>2>line 3
+1>line 4
+1>2>line 5
+`[1:]
+	if got := buf.String(); got != want {
+		t.Errorf("Mixing wrappers on newlines got:\n%s\nwant:\n%s",got, want)
 	}
 }
 
