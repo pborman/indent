@@ -89,7 +89,7 @@ func String(prefix, input string) string {
 	if len(input) == 0 || len(prefix) == 0 {
 		return input
 	}
-	return b2s(indent(s2b(input), s2b(prefix), true))
+	return b2s(indent(s2b(input), s2b(prefix), nil, true))
 }
 
 // Bytes returns input with each line in input prefixed by prefix.
@@ -97,16 +97,17 @@ func Bytes(prefix, input []byte) []byte {
 	if len(input) == 0 || len(prefix) == 0 {
 		return input
 	}
-	return indent(input, prefix, true)
+	return indent(input, prefix, nil, true)
 }
 
 // An indenter is an io.Writer.  All indenters in an uninterruped chain share
 // the same sol value.
 type indenter struct {
-	w      io.Writer
-	prefix []byte
-	sol    *bool     // true if we are at the start of a line
-	p      *indenter // the indenter we wrapped
+	w       io.Writer
+	prefix  []byte
+	postfix []byte
+	sol     *bool     // true if we are at the start of a line
+	p       *indenter // the indenter we wrapped
 }
 
 // NewWriter is the name used in github.com/openconfig/goyang/pkg/indent.
@@ -140,6 +141,17 @@ func New(w io.Writer, prefix string) io.Writer {
 	}
 }
 
+func NewPostfix(w io.Writer, indent, postfix string) io.Writer {
+	if indent == "" {
+		return w
+	}
+	return &indenter{
+		w:       w,
+		prefix:  []byte(indent),
+		postfix: []byte(postfix),
+	}
+}
+
 // Write implements io.Writer.  Write assumes proper nesting.  Not nesting on
 // newlines may end up with surprising results.  For example,
 //
@@ -158,7 +170,7 @@ func (in *indenter) Write(buf []byte) (int, error) {
 		return 0, nil
 	}
 	sol := *in.sol
-	nbuf := indent(buf, in.prefix, sol)
+	nbuf := indent(buf, in.prefix, in.postfix, sol)
 	r, err := in.w.Write(nbuf)
 	if r == len(nbuf) {
 		*in.sol = nbuf[r-1] == '\n'
@@ -209,32 +221,57 @@ func (in *indenter) Write(buf []byte) (int, error) {
 
 // indent returns buf with each line prefixed by prefix.  The sol flag indicates
 // if we are at the start of a line.
-func indent(buf, prefix []byte, sol bool) []byte {
-	if len(buf) == 0 || len(prefix) == 0 {
+func indent(buf, prefix, postfix []byte, sol bool) []byte {
+	if len(buf) == 0 || (len(prefix) == 0 && len(postfix) == 0) {
 		return buf
 	}
+
+
+	hasPostfix := false
+	if len(postfix) > 0 {
+		hasPostfix = true
+		postfix = append(postfix, '\n')
+	}
+
 	lines := bytes.SplitAfter(buf, []byte{'\n'})
+
 	n := len(lines) - 1
 	// If buf ends in a newline there will be a zero slice at the of the the
-	// lines.  It needs to be removed so we don't append and extra prefix.
-	if len(lines[n]) == 0 {
+	// lines.  It needs to be removed so we don't appen and extra prefix.
+	eol := len(lines[n]) == 0
+	if eol  {
+		// The last byte of buf was a newline.
 		lines = lines[:n]
 		n--
 	}
-	n = len(buf) + n*len(prefix)
-	if sol {
-		n += len(prefix)
-	}
-	buf = make([]byte, n)
 
-	n = 0
-	if !sol {
-		n = copy(buf, lines[0])
-		lines = lines[1:]
+	need := len(buf) + n*len(prefix)
+	if hasPostfix {
+		need += n * (len(postfix) -  1)
+		if eol {
+			need += len(postfix) - 1
+		}
 	}
-	for _, line := range lines {
-		n += copy(buf[n:], prefix)
-		n += copy(buf[n:], line)
+	if sol {
+		need += len(prefix)
+	}
+
+	buf = make([]byte, need)
+
+	wrote := 0
+	for i, line := range lines {
+		// All line, except perhaps the first, get the prefix.
+		if sol {
+			wrote += copy(buf[wrote:], prefix)
+		}
+		sol = true
+		if hasPostfix && (i < len(lines) - 1 || eol) {
+			// Postfix has the trailing newline
+			wrote += copy(buf[wrote:], line[:len(line)-1])
+			wrote += copy(buf[wrote:], postfix)
+		} else {
+			wrote += copy(buf[wrote:], line)
+		}
 	}
 	return buf
 }
