@@ -142,13 +142,15 @@ func New(w io.Writer, prefix string) io.Writer {
 }
 
 func NewPostfix(w io.Writer, indent, postfix string) io.Writer {
-	if indent == "" {
+	if indent == "" && postfix == "" {
 		return w
 	}
+	sol := true
 	return &indenter{
 		w:       w,
 		prefix:  []byte(indent),
 		postfix: []byte(postfix),
+		sol:    &sol,
 	}
 }
 
